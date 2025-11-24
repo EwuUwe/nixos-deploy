@@ -14,8 +14,8 @@ use tokio::{
 use tokio_stream::Stream;
 
 use crate::{
-    display::{self, ConfigurationStatus, StatusHandle},
-    executor::{CommandExecutor, Executor, SshExecutor},
+    execution::{CommandExecutor, Executor, SshExecutor},
+    types::ConfigurationStatus,
 };
 
 pub struct Flake {
@@ -204,27 +204,21 @@ impl NixosConfiguration {
         let out_path = self.out_path.clone().unwrap();
         let res = self
             .executor
-            .execute(
-                format!("{out_path}/bin/switch-to-configuration").as_str(),
+            .execute_and_wait(
+                &format!("{out_path}/bin/switch-to-configuration"),
                 &["switch"],
+                Some(std::time::Duration::from_secs(600)),
             )
             .await
             .context("Failed to execute activation command")?;
 
-        let mut err_lines = res.stderr.lines();
-
-        loop {
-            match err_lines.next_line().await.unwrap() {
-                Some(line) => {
-                    handle
-                        .send(display::ConfigurationStatus::Error {
-                            error: line.clone(),
-                        })
-                        .unwrap();
-                    //eprintln!("Activation error output: {}", line);
-                }
-                None => break,
-            }
+        for line in &res.stderr_lines {
+            handle
+                .send(ConfigurationStatus::Error {
+                    error: line.clone(),
+                    error_lines: vec![line.clone()],
+                })
+                .unwrap();
         }
 
         Ok(())
