@@ -1,4 +1,4 @@
-use crate::executor::{Executor, RemoteHost};
+use crate::executor::Executor;
 use color_eyre::Result;
 use std::sync::Arc;
 
@@ -30,16 +30,16 @@ impl DrvPath {
 }
 
 impl StorePath {
-    pub async fn copy_to(&self, target: Arc<RemoteHost>) -> Result<StorePath> {
-        let executor = crate::executor::LocalHost {};
+    pub async fn copy_to(&self, target: Arc<dyn Executor>) -> Result<StorePath> {
+        let executor = crate::executor::LocalHost;
         let _output = executor
             .execute(&[
                 "nix",
                 "copy",
                 "--from",
-                self.host.store_uri().as_str(),
+                self.host.store_uri(),
                 "--to",
-                target.store_uri().as_str(),
+                target.store_uri(),
                 self.path.as_str(),
             ])
             .await?

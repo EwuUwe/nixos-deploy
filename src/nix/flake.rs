@@ -65,16 +65,15 @@ impl NixFlake {
             .await?
             .into_result()?;
 
-        let deploy_configs: HashMap<String, HostMeta> = serde_json::from_str(&eval_output)?;
-        let deploy_configs = deploy_configs
+        let host_metas = serde_json::from_str::<HashMap<String, HostMeta>>(&eval_output)?
             .into_iter()
             .map(|(name, mut meta)| {
                 meta.name = name;
                 meta
             })
-            .collect::<Vec<_>>();
+            .collect();
 
-        Ok(deploy_configs)
+        Ok(host_metas)
     }
 }
 
@@ -83,8 +82,8 @@ pub trait Evaluatable {
     async fn evaluate(&self) -> Result<Self::Output>;
 }
 impl TargetHost {
-    pub fn new(meta: HostMeta, flake: NixFlake) -> Self {
-        TargetHost { meta, flake }
+    pub const fn new(meta: HostMeta, flake: NixFlake) -> Self {
+        Self { meta, flake }
     }
 }
 impl Evaluatable for TargetHost {

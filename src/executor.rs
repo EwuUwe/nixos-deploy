@@ -48,13 +48,13 @@ impl CommandOutput {
 #[async_trait]
 pub trait Executor: Send + Sync + Display + Debug {
     async fn execute(&self, command: &[&str]) -> color_eyre::Result<CommandOutput>;
-    fn store_uri(&self) -> String;
+    fn store_uri(&self) -> &str;
 }
 
 #[derive(Debug)]
 pub struct RemoteHost {
     session: Session,
-    target: String,
+    store_uri: String,
     name: String,
 }
 
@@ -64,7 +64,7 @@ impl RemoteHost {
 
         Ok(Self {
             session,
-            target: destination.to_string(),
+            store_uri: format!("ssh://{destination}"),
             name,
         })
     }
@@ -92,8 +92,8 @@ impl Executor for RemoteHost {
             status: output.status,
         })
     }
-    fn store_uri(&self) -> String {
-        format!("ssh://{}", self.target)
+    fn store_uri(&self) -> &str {
+        &self.store_uri
     }
 }
 
@@ -121,7 +121,7 @@ impl Executor for LocalHost {
         })
     }
 
-    fn store_uri(&self) -> String {
-        "auto".to_string()
+    fn store_uri(&self) -> &'static str {
+        "auto"
     }
 }

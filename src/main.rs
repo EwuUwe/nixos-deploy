@@ -25,18 +25,18 @@ async fn main() -> Result<()> {
     println!("Evaluating flake host configs");
     let host_metas = nixflake.evaluate_host_configs().await?;
 
-    let hosts = ["monitoring".to_string(), "auth".to_string()];
+    let hosts = ["monitoring", "auth"];
 
     let targets: Vec<TargetHost> = host_metas
         .into_iter()
-        .filter(|x| hosts.contains(&x.name))
+        .filter(|x| hosts.contains(&x.name.as_str()))
         .map(|x| TargetHost::new(x, nixflake.clone()))
         .collect();
 
     println!("Evaluating selected configs");
     let evaluated = targets.evaluate().await?;
 
-    let mut threads: JoinSet<_> = JoinSet::<color_eyre::Result<()>>::new();
+    let mut threads = JoinSet::<color_eyre::Result<()>>::new();
     for evaluated_host in evaluated {
         threads.spawn(async move {
             //println!("Building {}", evaluated_host);
