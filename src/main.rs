@@ -13,6 +13,7 @@ use clap::Parser;
 use color_eyre::Result;
 
 mod cli;
+mod commands;
 mod executor;
 mod host;
 mod nix;
@@ -29,16 +30,22 @@ async fn main() -> Result<()> {
         executor: localhost,
     };
 
-    let (stage, common) = match args.command {
-        Commands::Eval { common } => (Stage::Eval, common),
-        Commands::Build { common } => (Stage::Build, common),
-        Commands::Push { common } => (Stage::Push, common),
-        Commands::Apply { common } => (Stage::Apply, common),
-        Commands::Show {} => todo!(),
-    };
+    match args.command {
+        Commands::Show {} => commands::show(&flake).await,
+        Commands::Exec { common, command } => {
+            commands::exec(&flake, &common.hosts, &command).await
+        }
+        command => {
+            let (stage, common) = match command {
+                Commands::Eval { common } => (Stage::Eval, common),
+                Commands::Build { common } => (Stage::Build, common),
+                Commands::Push { common } => (Stage::Push, common),
+                Commands::Apply { common } => (Stage::Apply, common),
+                Commands::Show {} | Commands::Exec { .. } => unreachable!(),
+            };
 
-    let targets = pipeline::resolve_targets(&flake, &common.hosts).await?;
-    pipeline::deploy(stage, targets).await?;
-
-    Ok(())
+            let targets = pipeline::resolve_targets(&flake, &common.hosts).await?;
+            pipeline::deploy(stage, targets).await
+        }
+    }
 }

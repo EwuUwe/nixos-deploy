@@ -34,6 +34,12 @@ pub enum Commands {
     },
     /// Show information about the selected flake
     Show {},
+    Exec {
+        #[command(flatten)]
+        common: Common,
+        #[arg()]
+        command: String,
+    },
 }
 
 #[derive(Debug, Args, Clone)]

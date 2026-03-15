@@ -74,7 +74,7 @@ impl StorePath {
             .await?
             .into_result()?;
 
-        print!("{}", output);
+        print!("{output}");
 
         Ok(())
     }
