@@ -1,11 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use color_eyre::{Result, eyre::eyre};
-use serde::Deserialize;
 
 use crate::{
-    executor::{Executor, RemoteHost},
-    nix::store::{DrvPath, StorePath},
+    executor::Executor,
+    host::{EvaluatedHost, HostMeta, TargetHost},
+    nix::{eval::EvalOutput, store::DrvPath},
 };
 
 #[derive(Clone)]
@@ -14,44 +14,8 @@ pub struct NixFlake {
     pub executor: Arc<dyn Executor>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
-pub struct HostMeta {
-    #[serde(default)]
-    pub name: String,
-    pub ips: HashMap<String, String>,
-    #[allow(dead_code)]
-    pub tags: Vec<String>,
-}
-
-pub struct TargetHost {
-    meta: HostMeta,
-    flake: NixFlake,
-}
-
-pub struct EvaluatedHost {
-    meta: HostMeta,
-    derivation_path: DrvPath,
-}
-
-pub struct BuiltHost {
-    pub meta: HostMeta,
-    pub store_path: StorePath,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EvalOutput {
-    pub attr: String,
-    pub attr_path: Vec<String>,
-    pub drv_path: String,
-    pub name: String,
-    pub required_system_features: Vec<String>,
-    pub system: String,
-}
-
 impl NixFlake {
-    pub async fn evaluate_host_configs(&self) -> Result<Vec<HostMeta>> {
+    pub async fn evaluate_host_configs(&self) -> Result<HashMap<String, HostMeta>> {
         let eval_output = self
             .executor
             .execute(&[
@@ -68,8 +32,8 @@ impl NixFlake {
         let host_metas = serde_json::from_str::<HashMap<String, HostMeta>>(&eval_output)?
             .into_iter()
             .map(|(name, mut meta)| {
-                meta.name = name;
-                meta
+                meta.name = name.clone();
+                (name, meta)
             })
             .collect();
 
@@ -81,11 +45,7 @@ pub trait Evaluatable {
     type Output;
     async fn evaluate(&self) -> Result<Self::Output>;
 }
-impl TargetHost {
-    pub const fn new(meta: HostMeta, flake: NixFlake) -> Self {
-        Self { meta, flake }
-    }
-}
+
 impl Evaluatable for TargetHost {
     type Output = EvaluatedHost;
     async fn evaluate(&self) -> Result<Self::Output> {
@@ -136,6 +96,7 @@ impl Evaluatable for [TargetHost] {
     type Output = Vec<EvaluatedHost>;
     async fn evaluate(&self) -> Result<Self::Output> {
         let flake = self.first().unwrap().flake.clone();
+
         let output = flake
             .executor
             .execute(&[
@@ -153,7 +114,11 @@ impl Evaluatable for [TargetHost] {
                          lib.genAttrs [{}]
                          (host: flake.outputs.nixosConfigurations."${{host}}".config.system.build.toplevel)
                       "#,
-                    flake.flake_ref, self.iter().map(|s| format!("\"{}\"", s.meta.name)).collect::<Vec<_>>().join(" "),
+                    flake.flake_ref,
+                    self.iter()
+                        .map(|s| format!("\"{}\"", s.meta.name))
+                        .collect::<Vec<_>>()
+                        .join(" "),
                 )
                 .as_str(),
             ])
@@ -187,22 +152,5 @@ impl Evaluatable for [TargetHost] {
             .collect();
 
         Ok(hosts)
-    }
-}
-
-impl EvaluatedHost {
-    pub async fn realise(self) -> Result<BuiltHost> {
-        let path = self.derivation_path.realise().await?;
-
-        Ok(BuiltHost {
-            meta: self.meta,
-            store_path: path,
-        })
-    }
-}
-
-impl HostMeta {
-    pub async fn connect(&self) -> std::result::Result<RemoteHost, openssh::Error> {
-        RemoteHost::connect(self.ips.get("primary").unwrap(), self.name.clone()).await
     }
 }

@@ -1,2 +1,3 @@
+pub mod eval;
 pub mod flake;
-mod store;
+pub mod store;

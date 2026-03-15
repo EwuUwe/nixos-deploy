@@ -30,7 +30,7 @@ impl DrvPath {
 }
 
 impl StorePath {
-    pub async fn copy_to(&self, target: Arc<dyn Executor>) -> Result<StorePath> {
+    pub async fn copy_to(&self, target: Arc<dyn Executor>) -> Result<Self> {
         let executor = crate::executor::LocalHost;
         let _output = executor
             .execute(&[
@@ -45,7 +45,7 @@ impl StorePath {
             .await?
             .into_result()?;
 
-        Ok(StorePath {
+        Ok(Self {
             path: self.path.clone(),
             host: target,
         })
