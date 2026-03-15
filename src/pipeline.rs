@@ -95,12 +95,14 @@ async fn process_host(stage: Stage, evaluated_host: EvaluatedHost) -> Result<()>
 
     let executor = Arc::new(built.meta.connect().await?);
     println!("Copying to {executor}");
-    built.store_path.copy_to(executor).await?;
+    let target_store_path = built.store_path.copy_to(executor).await?;
     println!("Copied");
 
     if stage < Stage::Apply {
         return Ok(());
     }
 
-    todo!();
+    target_store_path.activate().await?;
+
+    Ok(())
 }

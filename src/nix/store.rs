@@ -50,4 +50,32 @@ impl StorePath {
             host: target,
         })
     }
+
+    pub async fn activate(&self) -> Result<()> {
+        self.host
+            .execute(&[
+                "sudo",
+                "nix-env",
+                "-p",
+                "/nix/var/nix/profiles/system",
+                "--set",
+                self.path.as_str(),
+            ])
+            .await?
+            .into_result()?;
+
+        let output = self
+            .host
+            .execute(&[
+                "sudo",
+                format!("{}/bin/switch-to-configuration", self.path).as_str(),
+                "switch",
+            ])
+            .await?
+            .into_result()?;
+
+        print!("{}", output);
+
+        Ok(())
+    }
 }
