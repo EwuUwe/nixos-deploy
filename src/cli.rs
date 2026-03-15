@@ -34,11 +34,13 @@ pub enum Commands {
     },
     /// Show information about the selected flake
     Show {},
+    /// Execute commands on remote machines
     Exec {
         #[command(flatten)]
         common: Common,
-        #[arg()]
-        command: String,
+        /// Command to execute on target hosts
+        #[arg(trailing_var_arg = true, required = true)]
+        command: Vec<String>,
     },
 }
 

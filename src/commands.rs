@@ -1,10 +1,7 @@
 use color_eyre::Result;
+use tokio::task::JoinSet;
 
-use crate::{
-    executor::Executor,
-    nix::flake::NixFlake,
-    pipeline::resolve_targets,
-};
+use crate::{executor::Executor, nix::flake::NixFlake, pipeline::resolve_targets};
 
 pub async fn show(flake: &NixFlake) -> Result<()> {
     let hosts = flake.evaluate_host_configs().await?;
@@ -12,13 +9,24 @@ pub async fn show(flake: &NixFlake) -> Result<()> {
     Ok(())
 }
 
-pub async fn exec(flake: &NixFlake, hosts: &[String], command: &str) -> Result<()> {
+pub async fn exec(flake: &NixFlake, hosts: &[String], command: &[String]) -> Result<()> {
     let targets = resolve_targets(flake, hosts).await?;
 
-    for target in &targets {
-        let connection = target.meta.connect().await?;
-        let output = connection.execute(&[command]).await?.into_result()?;
-        println!("{output}");
+    let mut tasks = JoinSet::<Result<()>>::new();
+    for target in targets {
+        let command = command.to_vec();
+        tasks.spawn(async move {
+            let connection = target.meta.connect().await?;
+            let command: Vec<&str> = command.iter().map(String::as_str).collect();
+            let output = connection.execute(&command).await?.into_result()?;
+            println!("{output}");
+
+            Ok(())
+        });
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        result??;
     }
 
     Ok(())

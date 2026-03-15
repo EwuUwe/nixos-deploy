@@ -8,7 +8,7 @@ pub struct StorePath {
     pub host: Arc<dyn Executor>,
 }
 
-/// Reference to an existing /nix/store/*.drv-Derivation-Path on a specific host
+/// Reference to an existing drv-Path on a specific host
 pub struct DrvPath {
     pub path: String,
     pub host: Arc<dyn Executor>,
