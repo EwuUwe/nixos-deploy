@@ -86,7 +86,8 @@ pub async fn deploy(stage: Stage, targets: Vec<TargetHost>) -> Result<()> {
 
 async fn process_host(stage: Stage, evaluated_host: EvaluatedHost) -> Result<()> {
     println!("Building {}", evaluated_host.meta.name);
-    let built = evaluated_host.realise().await?;
+    let target_name = evaluated_host.meta.name.clone();
+    let built = evaluated_host.realise(target_name).await?;
     println!("Built: {}", built.store_path.path);
 
     if stage < Stage::Push {

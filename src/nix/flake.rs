@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use color_eyre::{Result, eyre::eyre};
 
 use crate::{
-    executor::Executor,
+    executor::{ExecutionContext, Executor},
     host::{EvaluatedHost, HostMeta, TargetHost},
     nix::{eval::EvalOutput, store::DrvPath},
 };
@@ -18,14 +18,17 @@ impl NixFlake {
     pub async fn evaluate_host_configs(&self) -> Result<HashMap<String, HostMeta>> {
         let eval_output = self
             .executor
-            .execute(&[
-                "nix",
-                "eval",
-                "--json",
-                format!("{}#nixosConfigurations", self.flake_ref).as_str(),
-                "--apply",
-                "builtins.mapAttrs (_: value: value.config.deploy)",
-            ])
+            .execute(
+                &[
+                    "nix",
+                    "eval",
+                    "--json",
+                    format!("{}#nixosConfigurations", self.flake_ref).as_str(),
+                    "--apply",
+                    "builtins.mapAttrs (_: value: value.config.deploy)",
+                ],
+                ExecutionContext::This,
+            )
             .await?
             .into_result()?;
 
@@ -52,13 +55,14 @@ impl Evaluatable for TargetHost {
         let output = self
             .flake
             .executor
-            .execute(&[
-                "nix-eval-jobs",
-                "--expr",
-                "--workers",
-                "8",
-                format!(
-                    r#"
+            .execute(
+                &[
+                    "nix-eval-jobs",
+                    "--expr",
+                    "--workers",
+                    "8",
+                    format!(
+                        r#"
                 with builtins;
                 let
                     flake = getFlake "{}";
@@ -66,10 +70,12 @@ impl Evaluatable for TargetHost {
                 in
                     flake.outputs.nixosConfigurations.{}.config.system.build.toplevel
                 "#,
-                    self.flake.flake_ref, self.meta.name,
-                )
-                .as_str(),
-            ])
+                        self.flake.flake_ref, self.meta.name,
+                    )
+                    .as_str(),
+                ],
+                ExecutionContext::This,
+            )
             .await?
             .into_result()?;
 
@@ -121,8 +127,10 @@ impl Evaluatable for [TargetHost] {
                         .join(" "),
                 )
                 .as_str(),
-            ])
-            .await?
+            ],
+            ExecutionContext::This,
+        )
+        .await?
             .into_result()?;
 
         if output.lines().count() != self.len() {

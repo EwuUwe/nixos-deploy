@@ -43,8 +43,8 @@ pub struct EvaluatedHost {
 }
 
 impl EvaluatedHost {
-    pub async fn realise(self) -> Result<BuiltHost> {
-        let path = self.derivation_path.realise().await?;
+    pub async fn realise(self, target: String) -> Result<BuiltHost> {
+        let path = self.derivation_path.realise(target).await?;
 
         Ok(BuiltHost {
             meta: self.meta,

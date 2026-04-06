@@ -3,7 +3,10 @@ use std::{
     fmt::{self, Debug, Display},
     process::ExitStatus,
 };
-use tokio::process::Command;
+use tokio::{
+    io::{AsyncBufRead, AsyncBufReadExt, BufReader},
+    process::Command,
+};
 
 use async_trait::async_trait;
 
@@ -45,9 +48,29 @@ impl CommandOutput {
     }
 }
 
+pub enum ExecutionContext {
+    This,
+    Cross(String),
+}
+
+impl ExecutionContext {
+    fn fmt(&self, this: &str) -> String {
+        match self {
+            ExecutionContext::This => format!("[{}]", this),
+            ExecutionContext::Cross(remote) => {
+                format!("[{} => {}]", this, remote)
+            }
+        }
+    }
+}
+
 #[async_trait]
 pub trait Executor: Send + Sync + Display + Debug {
-    async fn execute(&self, command: &[&str]) -> color_eyre::Result<CommandOutput>;
+    async fn execute(
+        &self,
+        command: &[&str],
+        context: ExecutionContext,
+    ) -> color_eyre::Result<CommandOutput>;
     fn store_uri(&self) -> &str;
 }
 
@@ -78,18 +101,34 @@ impl Display for RemoteHost {
 
 #[async_trait]
 impl Executor for RemoteHost {
-    async fn execute(&self, command: &[&str]) -> color_eyre::Result<CommandOutput> {
-        let output = self
+    async fn execute(
+        &self,
+        command: &[&str],
+        context: ExecutionContext,
+    ) -> color_eyre::Result<CommandOutput> {
+        let mut child = self
             .session
             .command(command[0])
             .args(&command[1..])
-            .output()
+            .stdout(openssh::Stdio::piped())
+            .stderr(openssh::Stdio::piped())
+            .spawn()
             .await?;
 
+        let prefix = context.fmt(&self.name);
+        let (stdout, stderr) = stream_output(
+            BufReader::new(child.stdout().take().unwrap()),
+            BufReader::new(child.stderr().take().unwrap()),
+            prefix,
+        )
+        .await?;
+
+        let status = child.wait().await?;
+
         Ok(CommandOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            status: output.status,
+            stdout,
+            stderr,
+            status,
         })
     }
     fn store_uri(&self) -> &str {
@@ -108,20 +147,81 @@ impl Display for LocalHost {
 
 #[async_trait]
 impl Executor for LocalHost {
-    async fn execute(&self, command: &[&str]) -> color_eyre::Result<CommandOutput> {
-        let output = Command::new(command[0])
+    async fn execute(
+        &self,
+        command: &[&str],
+        context: ExecutionContext,
+    ) -> color_eyre::Result<CommandOutput> {
+        let mut child = Command::new(command[0])
             .args(&command[1..])
-            .output()
-            .await?;
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
 
+        let prefix = context.fmt(&self.to_string());
+        let (stdout, stderr) = stream_output(
+            BufReader::new(child.stdout.take().unwrap()),
+            BufReader::new(child.stderr.take().unwrap()),
+            prefix,
+        )
+        .await?;
+
+        let status = child.wait().await?;
         Ok(CommandOutput {
-            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            status: output.status,
+            stdout,
+            stderr,
+            status,
         })
     }
 
     fn store_uri(&self) -> &'static str {
         "auto"
     }
+}
+
+const PREFIX_WIDTH: usize = 20;
+
+async fn stream_output<O, E>(
+    stdout_reader: O,
+    stderr_reader: E,
+    prefix: String,
+) -> color_eyre::Result<(String, String)>
+where
+    O: AsyncBufRead + Unpin,
+    E: AsyncBufRead + Unpin,
+{
+    let mut stdout_lines = stdout_reader.lines();
+    let mut stderr_lines = stderr_reader.lines();
+    let mut out_buf = String::new();
+    let mut err_buf = String::new();
+
+    let mut stdout_done = false;
+    let mut stderr_done = false;
+
+    while !stdout_done || !stderr_done {
+        tokio::select! {
+            line = stdout_lines.next_line(), if !stdout_done => {
+                match line? {
+                    Some(line) => {
+                        println!("{:<width$} | {}", prefix, line, width = PREFIX_WIDTH);
+                        out_buf.push_str(&line);
+                        out_buf.push('\n');
+                    }
+                    None => stdout_done = true,
+                }
+            }
+            line = stderr_lines.next_line(), if !stderr_done => {
+                match line? {
+                    Some(line) => {
+                        eprintln!("{:<width$} | {}", prefix, line, width = PREFIX_WIDTH);
+                        err_buf.push_str(&line);
+                        err_buf.push('\n');
+                    }
+                    None => stderr_done = true,
+                }
+            }
+        }
+    }
+
+    Ok((out_buf, err_buf))
 }
