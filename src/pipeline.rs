@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use color_eyre::{Result, eyre::eyre};
 use tokio::task::JoinSet;
@@ -19,26 +19,31 @@ pub enum Stage {
 pub async fn resolve_targets(flake: &NixFlake, hosts: &[String]) -> Result<Vec<TargetHost>> {
     let host_metas = flake.evaluate_host_configs().await?;
 
-    let missing_hosts: Vec<&str> = hosts
-        .iter()
-        .filter(|s| !host_metas.contains_key(*s))
-        .map(String::as_str)
-        .collect();
+    let mut matched_keys = HashSet::new();
+    let mut missing_patterns = Vec::new();
 
-    if !missing_hosts.is_empty() {
+    for pattern in hosts {
+        let wm = wildmatch::WildMatch::new(pattern);
+        let mut matches = host_metas.keys().filter(|k| wm.matches(k)).peekable();
+
+        if matches.peek().is_none() {
+            missing_patterns.push(pattern.as_str());
+        } else {
+            matched_keys.extend(matches);
+        }
+    }
+
+    if !missing_patterns.is_empty() {
         return Err(eyre!(
-            "Specified hosts not found in flake: {}",
-            missing_hosts.join(", ")
+            "Specified host patterns matched no hosts in flake: {}",
+            missing_patterns.join(", ")
         ));
     }
 
-    let targets = hosts
-        .iter()
-        .filter_map(|s| host_metas.get(s))
-        .map(|meta| TargetHost::new(meta.clone(), flake.clone()))
-        .collect();
-
-    Ok(targets)
+    Ok(matched_keys
+        .into_iter()
+        .map(|key| TargetHost::new(host_metas[key].clone(), flake.clone()))
+        .collect())
 }
 
 pub async fn deploy(stage: Stage, targets: Vec<TargetHost>) -> Result<()> {
